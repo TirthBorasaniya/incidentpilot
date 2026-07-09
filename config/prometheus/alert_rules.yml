@@ -1,0 +1,59 @@
+groups:
+  - name: ml_pipeline_alerts
+    interval: 30s
+    rules:
+      - alert: ServingLatencyHigh
+        expr: model_serving_p99_latency_seconds > 2.0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Model serving p99 latency is above 2.0s"
+          description: >
+            Service {{ $labels.service }} model {{ $labels.model }}
+            p99 latency is {{ $value }}s, threshold is 2.0s.
+
+      - alert: ModelDriftDetected
+        expr: model_psi_score > 0.2
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PSI score exceeds drift threshold"
+          description: >
+            Feature set {{ $labels.feature_set }} PSI score is
+            {{ $value }}, threshold is 0.2.
+
+      - alert: RetrainingJobFailed
+        expr: ml_retraining_job_success == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ML retraining job failed"
+          description: >
+            Retraining job {{ $labels.job_id }} on service
+            {{ $labels.service }} reported failure.
+
+      - alert: FeatureStalenessHigh
+        expr: ml_feature_freshness_seconds > 3600
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Feature store freshness exceeds 1 hour"
+          description: >
+            Feature view {{ $labels.feature_view }} on service
+            {{ $labels.service }} has not been updated in
+            {{ $value }}s.
+
+      - alert: ServingErrorRateHigh
+        expr: ml_serving_error_rate > 0.05
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Model serving error rate above 5 percent"
+          description: >
+            Service {{ $labels.service }} model {{ $labels.model }}
+            error rate is {{ $value }}, threshold is 0.05.

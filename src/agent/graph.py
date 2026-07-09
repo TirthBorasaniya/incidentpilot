@@ -1,0 +1,182 @@
+"""LangGraph state graph definition for the IncidentPilot agent."""
+
+import os
+
+from groq import BadRequestError
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_groq import ChatGroq
+from langgraph.graph import END, START, StateGraph
+from langgraph.prebuilt import ToolNode, tools_condition
+
+from src.agent.state import AgentState
+from src.agent.tools.logs_tool import query_logs
+from src.agent.tools.prometheus_tool import query_prometheus
+from src.agent.tools.runbook_tool import search_runbooks
+from src.agent.tools.slack_tool import post_slack
+from src.db.incident_log import update_incident
+
+# ============= Constants =============
+
+TOOLS_LIST = [query_prometheus, query_logs, search_runbooks, post_slack]
+
+SYSTEM_PROMPT_TEMPLATE = """You are IncidentPilot, an ML pipeline incident response agent.
+
+You have received a Prometheus alert. Your job is to:
+1. Query Prometheus for the relevant metric to confirm the current value.
+2. Query logs for the affected service to find relevant error messages.
+3. Search the runbook corpus for the matching failure type.
+4. Synthesize a root cause hypothesis and a specific recommended action.
+
+Alert name: {alert_name}
+Labels: {labels_dict}
+Annotations: {annotations_dict}
+
+Use the tools available to gather evidence before synthesizing.
+Do not guess. Base your diagnosis only on tool outputs.
+When you have enough evidence, write a concise diagnosis in this format:
+
+ROOT CAUSE: <one sentence>
+EVIDENCE: <bullet list of key findings from tools>
+RECOMMENDED ACTION: <specific step to take>
+RUNBOOKS CONSULTED: <list of runbook titles used>
+"""
+
+
+def _get_llm():
+    """One-line helper constructing the Groq chat model from env config."""
+    return ChatGroq(model=os.environ["GROQ_MODEL"], api_key=os.environ["GROQ_API_KEY"])
+
+
+# ============= Graph nodes =============
+
+
+def analyze_node(state: AgentState) -> dict:
+    """
+    Bind tools to the LLM and invoke it with the system prompt and current messages.
+
+    Parameters
+    ----------
+    state : AgentState
+        Current agent state.
+
+    Returns
+    -------
+    update_dict : dict
+        Partial state update containing the new assistant message.
+    """
+    max_iterations = int(os.environ["MAX_AGENT_ITERATIONS"])
+
+    if state["iteration_count"] >= max_iterations:
+        return {"messages": []}
+
+    llm = _get_llm().bind_tools(TOOLS_LIST)
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+        alert_name=state["alert_name"],
+        labels_dict=state["labels_dict"],
+        annotations_dict=state["annotations_dict"],
+    )
+
+    messages = [SystemMessage(content=system_prompt), *state["messages"]]
+
+    try:
+        response = llm.invoke(messages)
+    except BadRequestError:
+        # small model occasionally emits a malformed tool call the API rejects
+        response = AIMessage(content="ROOT CAUSE: unable to complete evidence gathering "
+                              "due to a malformed tool call. EVIDENCE: see tool outputs "
+                              "collected so far. RECOMMENDED ACTION: consult runbooks "
+                              "manually. RUNBOOKS CONSULTED: none.")
+
+    return {"messages": [response]}
+
+
+def execute_tools_node_wrapper(state: AgentState) -> dict:
+    """
+    Run pending tool calls and increment the iteration counter.
+
+    Parameters
+    ----------
+    state : AgentState
+        Current agent state.
+
+    Returns
+    -------
+    update_dict : dict
+        Partial state update containing tool result messages and the
+        incremented iteration count.
+    """
+    tool_node = ToolNode(TOOLS_LIST)
+    tool_result = tool_node.invoke(state)
+
+    return {
+        "messages": tool_result["messages"],
+        "iteration_count": state["iteration_count"] + 1,
+    }
+
+
+def synthesize_node(state: AgentState) -> dict:
+    """
+    Extract the diagnosis from the last assistant message and persist the incident.
+
+    Parameters
+    ----------
+    state : AgentState
+        Current agent state.
+
+    Returns
+    -------
+    update_dict : dict
+        Partial state update containing the diagnosis and recommended action.
+    """
+    last_message = state["messages"][-1]
+    diagnosis_text = last_message.content
+
+    recommended_action = _extract_section(diagnosis_text, "RECOMMENDED ACTION")
+    runbooks_used = _extract_section(diagnosis_text, "RUNBOOKS CONSULTED")
+
+    post_slack.invoke({"message": diagnosis_text})
+
+    tool_calls_list = [
+        {"content": message.content}
+        for message in state["messages"]
+        if message.type == "tool"
+    ]
+
+    update_incident(
+        incident_id=state["incident_id"],
+        diagnosis=diagnosis_text,
+        recommended_action=recommended_action,
+        runbooks_used_list=[runbooks_used],
+        tool_calls_list=tool_calls_list,
+    )
+
+    return {"diagnosis": diagnosis_text, "recommended_action": recommended_action}
+
+
+def _extract_section(diagnosis_text: str, section_label: str) -> str:
+    """One-line helper extracting a labeled section from the diagnosis text."""
+    lines_matching = [
+        line.split(":", 1)[1].strip()
+        for line in diagnosis_text.splitlines()
+        if line.startswith(section_label)
+    ]
+    return lines_matching[0] if lines_matching else ""
+
+
+# ============= Graph construction =============
+
+builder = StateGraph(AgentState)
+builder.add_node("analyze", analyze_node)
+builder.add_node("execute_tools", execute_tools_node_wrapper)
+builder.add_node("synthesize", synthesize_node)
+
+builder.add_edge(START, "analyze")
+builder.add_conditional_edges(
+    "analyze",
+    tools_condition,
+    {"tools": "execute_tools", END: "synthesize"},
+)
+builder.add_edge("execute_tools", "analyze")
+builder.add_edge("synthesize", END)
+
+graph = builder.compile()
