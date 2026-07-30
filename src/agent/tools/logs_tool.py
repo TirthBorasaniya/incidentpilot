@@ -2,9 +2,20 @@
 
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from langchain_core.tools import tool
+
+from src.agent.tools.validation import (
+    MAX_PATTERN_CHARS,
+    MAX_WINDOW_MINUTES,
+    MIN_WINDOW_MINUTES,
+    ToolInputError,
+    resolve_within_directory,
+    validate_int_range,
+    validate_service,
+    validate_text,
+)
 
 MAX_MATCHING_LINES = 20
 
@@ -17,8 +28,8 @@ def query_logs(service: str, pattern: str, window_minutes: int = 30) -> str:
     Parameters
     ----------
     service : str
-        Service name, used to locate the log file at
-        {LOG_DIR}/{service}.jsonl.
+        Service name, which must appear on the known services allowlist. Used
+        to locate the log file at {LOG_DIR}/{service}.jsonl.
     pattern : str
         String to search for in the raw log line text.
     window_minutes : int
@@ -30,12 +41,23 @@ def query_logs(service: str, pattern: str, window_minutes: int = 30) -> str:
         Newline-joined matching log lines, or a message if none found.
     """
     log_dir = os.environ["LOG_DIR"]
-    log_path = f"{log_dir}/{service}.jsonl"
+
+    try:
+        service = validate_service(service)
+        pattern = validate_text(pattern, MAX_PATTERN_CHARS, "pattern")
+        window_minutes = validate_int_range(
+            window_minutes, MIN_WINDOW_MINUTES, MAX_WINDOW_MINUTES, "window_minutes"
+        )
+        log_path = resolve_within_directory(log_dir, f"{log_dir}/{service}.jsonl")
+    except ToolInputError as error:
+        return f"Rejected query_logs call: {error}"
 
     if not os.path.exists(log_path):
         return f"No log file found for service {service}."
 
-    cutoff_time = datetime.utcnow() - timedelta(minutes=window_minutes)
+    # naive UTC, matching the timestamps written by the simulation harness
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff_time = now_utc - timedelta(minutes=window_minutes)
     matching_lines_list = []
 
     with open(log_path, "r") as log_file:

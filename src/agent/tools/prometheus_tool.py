@@ -6,6 +6,15 @@ import os
 import httpx
 from langchain_core.tools import tool
 
+from src.agent.tools.validation import (
+    MAX_PROMQL_CHARS,
+    MAX_WINDOW_MINUTES,
+    MIN_WINDOW_MINUTES,
+    ToolInputError,
+    validate_int_range,
+    validate_text,
+)
+
 
 @tool
 def query_prometheus(promql: str, lookback_minutes: int = 30) -> str:
@@ -26,6 +35,14 @@ def query_prometheus(promql: str, lookback_minutes: int = 30) -> str:
         JSON-serialized list of metric result dicts, or an error message.
     """
     prometheus_url = os.environ["PROMETHEUS_URL"]
+
+    try:
+        promql = validate_text(promql, MAX_PROMQL_CHARS, "promql")
+        lookback_minutes = validate_int_range(
+            lookback_minutes, MIN_WINDOW_MINUTES, MAX_WINDOW_MINUTES, "lookback_minutes"
+        )
+    except ToolInputError as error:
+        return f"Rejected query_prometheus call: {error}"
 
     try:
         response = httpx.get(

@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
@@ -106,7 +106,7 @@ def write_log_lines(log_dir: str, log_service: str, log_lines: list[dict]) -> No
     """
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"{log_service}.jsonl")
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
     resolved_lines_list = [
         {**line, "timestamp": now_iso} for line in log_lines
