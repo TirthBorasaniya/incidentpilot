@@ -5,7 +5,7 @@ services:
     image: prom/prometheus:v2.51.0
     container_name: prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./config/prometheus:/etc/prometheus:ro
     command:
@@ -20,7 +20,7 @@ services:
     image: prom/alertmanager:v0.27.0
     container_name: alertmanager
     ports:
-      - "9093:9093"
+      - "127.0.0.1:9093:9093"
     volumes:
       - ./config/alertmanager:/etc/alertmanager:ro
     command:
@@ -34,7 +34,7 @@ services:
     image: prom/pushgateway:v1.8.0
     container_name: pushgateway
     ports:
-      - "9091:9091"
+      - "127.0.0.1:9091:9091"
     networks:
       - incidentpilot-net
     restart: unless-stopped
@@ -43,9 +43,9 @@ services:
     image: grafana/grafana:10.4.0
     container_name: grafana
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -58,7 +58,7 @@ services:
     image: qdrant/qdrant:v1.9.0
     container_name: qdrant
     ports:
-      - "6333:6333"
+      - "127.0.0.1:6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
     networks:
@@ -69,7 +69,7 @@ services:
     build: .
     container_name: incidentpilot
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     depends_on:

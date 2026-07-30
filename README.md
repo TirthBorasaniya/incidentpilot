@@ -65,8 +65,14 @@ to SQLite.
 
 1. Clone the repository and `cd` into it.
 2. Copy `.env.example` to `.env` and fill in `GROQ_API_KEY`, `SLACK_BOT_TOKEN`,
-   `SLACK_CHANNEL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST`
-   (use `https://us.cloud.langfuse.com` if your Langfuse project is on the US region).
+   `SLACK_CHANNEL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`
+   (use `https://us.cloud.langfuse.com` if your Langfuse project is on the US region),
+   and `GRAFANA_ADMIN_PASSWORD`. Compose refuses to start if the Grafana password
+   is unset. Restrict the file with `chmod 600 .env`.
+
+   All six services publish on `127.0.0.1` only. None of them carry
+   authentication, so do not change these bindings to `0.0.0.0` on a shared or
+   untrusted network.
 3. Build and start the stack:
    ```
    docker compose build
