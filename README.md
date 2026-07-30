@@ -55,6 +55,9 @@ to SQLite.
 
 ## Prerequisites
 
+- **Python >= 3.10, < 3.13** for the host-side scripts. `fastembed==0.2.7`
+  declares `<3.13`, so dependency resolution fails outright on Python 3.13.
+  The Docker image is built on `python:3.11-slim` and is the supported path.
 - Docker and Docker Compose
 - A Groq API key (https://console.groq.com)
 - A Slack bot token with `chat:write` scope, invited to the target channel
