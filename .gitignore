@@ -1,9 +1,63 @@
+# secrets and local environment
 .env
-CLAUDE.md
+.env.*
+!.env.example
+
+# runtime state
 logs/
 data/
+*.db
+*.sqlite
+*.log
+
+# agent and editor scaffolding
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.cursorrules
+.cursor/
+.aider*
+.continue/
+.windsurfrules
+.github/copilot-instructions.md
+
+# scratch and planning notes
+AUDIT_REPORT.md
+IMPLEMENTATION_REPORT.md
+MASTER_PLAN.md
+NOTES.md
+TODO.md
+PLAN.md
+SCRATCH*
+prompts/
+notes/
+scratch/
+drafts/
+*.bak
+*.orig
+
+# python
 __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
+.venv/
+venv/
+
+# builds and packages
 dist/
+build/
+node_modules/
+
+# model weights and checkpoints
+*.pt
+*.bin
+*.safetensors
+*.gguf
+
+# os and editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.code-workspace

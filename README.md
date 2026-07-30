@@ -9,48 +9,39 @@ to SQLite.
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    SIM["scripts/simulate_incident.py"] -->|push metric| PG["Pushgateway"]
+    SIM -->|write JSONL| LOGS[("logs/*.jsonl")]
+    PG -->|scrape| PROM["Prometheus"]
+    PROM --> GRAF["Grafana"]
+    PROM -->|alert rules fire| AM["Alertmanager"]
+    AM -->|webhook| API["FastAPI receiver<br/>POST /webhook/alert"]
+    API -->|background task| AGENT
+
+    subgraph AGENT ["LangGraph agent"]
+        direction LR
+        ANALYZE["analyze"] --> TOOLS["execute_tools"]
+        TOOLS --> ANALYZE
+        ANALYZE --> SYNTH["synthesize"]
+    end
+
+    AGENT --> T1["query_prometheus"]
+    AGENT --> T2["query_logs"]
+    AGENT --> T3["search_runbooks"]
+    AGENT --> T4["post_slack"]
+
+    T1 --> PROM
+    T2 --> LOGS
+    T3 --> QDRANT[("Qdrant<br/>runbook vectors")]
+    T4 --> SLACK["Slack channel"]
+
+    SYNTH --> DB[("SQLite<br/>incident log")]
+    AGENT -.->|callback trace| LF["Langfuse"]
 ```
-                    ┌──────────────┐      ┌────────────────┐
-                    │  Pushgateway │◄─────│ simulate_incident│
-                    └──────┬───────┘      └────────────────┘
-                           │ scrape
-                           ▼
-┌──────────────┐    ┌──────────────┐      ┌───────────────┐
-│   Grafana    │◄───│  Prometheus  │─────►│ Alertmanager  │
-└──────────────┘    └──────────────┘      └───────┬───────┘
-                                                   │ webhook
-                                                   ▼
-                                        ┌─────────────────────┐
-                                        │  FastAPI receiver   │
-                                        │ /webhook/alert       │
-                                        └──────────┬──────────┘
-                                                   │ background task
-                                                   ▼
-                                        ┌─────────────────────┐
-                                        │  LangGraph agent     │
-                                        │  analyze → tools →   │
-                                        │  synthesize           │
-                                        └──────────┬──────────┘
-                             ┌─────────────────────┼─────────────────────┐
-                             ▼                     ▼                     ▼
-                    ┌────────────────┐   ┌──────────────────┐  ┌─────────────────┐
-                    │ query_prometheus│   │ query_logs        │  │ search_runbooks  │
-                    └────────────────┘   └──────────────────┘  └────────┬─────────┘
-                                                                          ▼
-                                                                  ┌──────────────┐
-                                                                  │    Qdrant     │
-                                                                  └──────────────┘
-                             │
-                             ▼
-                    ┌────────────────┐        ┌──────────────┐       ┌───────────────┐
-                    │   post_slack    │───────►│    Slack      │       │   Langfuse     │
-                    └────────────────┘        └──────────────┘       │  (trace of run) │
-                             │                                        └───────────────┘
-                             ▼
-                    ┌────────────────┐
-                    │  SQLite log     │
-                    └────────────────┘
-```
+
+Alert content arriving from the webhook is treated as untrusted input. See
+[SECURITY.md](SECURITY.md) for the threat model and the controls around it.
 
 
 ## Prerequisites
@@ -86,6 +77,18 @@ to SQLite.
    pip install fastembed qdrant-client python-dotenv
    QDRANT_URL=http://localhost:6333 python scripts/index_runbooks.py
    ```
+
+
+## Tests
+
+```
+pip install -r requirements-dev.txt
+pytest
+```
+
+The suite covers the tool input validation boundary, including path traversal
+attempts in the `service` argument, and the isolation of untrusted webhook
+content from the system prompt.
 
 
 ## Running a simulation
