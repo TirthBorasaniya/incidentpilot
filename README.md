@@ -179,8 +179,7 @@ pytest
 ```
 
 Since none of the six services carry authentication, all of them publish on
-`127.0.0.1` only. [SECURITY.md](SECURITY.md) covers the threat model and the
-per-CVE reachability analysis for the pinned dependencies.
+`127.0.0.1` only.
 
 
 ## Limitations
@@ -243,8 +242,8 @@ flowchart TD
     AGENT -.->|callback trace| LF["Langfuse"]
 ```
 
-Alert content arriving from the webhook is treated as untrusted input. See
-[SECURITY.md](SECURITY.md) for the threat model and the controls around it.
+Alert content arriving from the webhook is treated as untrusted input. See the
+security section above for the threat model and the controls around it.
 
 
 ## What to observe

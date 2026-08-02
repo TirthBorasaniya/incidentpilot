@@ -1,6 +1,7 @@
 # requires Python >=3.10,<3.13
 # fastembed 0.2.7 declares <3.13; python-dotenv 1.2.2 sets the >=3.10 floor
-# see SECURITY.md for the pinned-dependency reachability analysis
+# langchain and langgraph stay pinned deliberately: their CVE fixes cross the
+# 0.2 to 0.3 boundary and the advisories are not reachable in this codebase
 
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
