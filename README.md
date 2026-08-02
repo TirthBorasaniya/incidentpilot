@@ -1,82 +1,90 @@
 # IncidentPilot
 
-IncidentPilot is an ML-pipeline-specific incident response agent. When a Prometheus
-alert fires for drift, latency, retraining failure, feature staleness, or a high
-serving error rate, a LangGraph agent gathers evidence from Prometheus, service logs,
-and a runbook corpus, then posts a root cause diagnosis to Slack and logs the incident
-to SQLite.
+An ML pipeline alert fires at 2am and the on-call engineer starts from nothing:
+which metric moved, what the logs say, which of fifteen runbooks applies, and
+whether this is the same failure as last week. IncidentPilot does that first
+pass automatically, so the engineer opens Slack to a diagnosis with evidence
+attached instead of a bare alert.
+
+It is a LangGraph agent wired to a full local observability stack. A Docker
+Compose simulation harness reproduces five ML pipeline failures end to end, so
+the whole system is demonstrable on a laptop without touching live
+infrastructure.
 
 
-## Architecture
+## What it does
 
-```mermaid
-flowchart TD
-    SIM["scripts/simulate_incident.py"] -->|push metric| PG["Pushgateway"]
-    SIM -->|write JSONL| LOGS[("logs/*.jsonl")]
-    PG -->|scrape| PROM["Prometheus"]
-    PROM --> GRAF["Grafana"]
-    PROM -->|alert rules fire| AM["Alertmanager"]
-    AM -->|webhook| API["FastAPI receiver<br/>POST /webhook/alert"]
-    API -->|background task| AGENT
+Given an Alertmanager webhook, the agent runs an evidence-gathering loop over
+four tools and then synthesizes a diagnosis:
 
-    subgraph AGENT ["LangGraph agent"]
-        direction LR
-        ANALYZE["analyze"] --> TOOLS["execute_tools"]
-        TOOLS --> ANALYZE
-        ANALYZE --> SYNTH["synthesize"]
-    end
+- **Ingests Alertmanager webhooks.** `POST /webhook/alert` parses the payload,
+  writes an incident record, and dispatches the agent as a background task,
+  returning 202 immediately.
+- **Queries live PromQL.** `query_prometheus` hits the Prometheus HTTP API to
+  confirm the current value of the metric that fired, rather than trusting the
+  value embedded in the alert annotation.
+- **Searches service logs.** `query_logs` scans structured JSONL for a pattern
+  within a time window, over an allowlist of four known services.
+- **Retrieves the matching runbook.** 15 runbooks are chunked at 500 characters
+  with 50 characters of overlap into **77 chunks**, embedded with
+  `BAAI/bge-small-en-v1.5` into **384-dimensional vectors**, and stored in
+  Qdrant under **cosine similarity**. `search_runbooks` embeds the failure
+  description and returns the **top 2** chunks as RAG context.
+- **Posts a structured diagnosis to Slack**, in a fixed format: root cause,
+  evidence, recommended action, runbooks consulted.
+- **Traces every tool call.** The graph is invoked with a Langfuse callback
+  handler, so each LLM generation and tool invocation appears in order.
+- **Persists an audit record.** Diagnosis, recommended action, runbooks used and
+  the full tool-call log are written to SQLite and readable at
+  `GET /incidents/{incident_id}`.
 
-    AGENT --> T1["query_prometheus"]
-    AGENT --> T2["query_logs"]
-    AGENT --> T3["search_runbooks"]
-    AGENT --> T4["post_slack"]
+The loop is capped by `MAX_AGENT_ITERATIONS` and routed with LangGraph's
+`tools_condition`, so the agent either gathers more evidence or moves to
+synthesis.
 
-    T1 --> PROM
-    T2 --> LOGS
-    T3 --> QDRANT[("Qdrant<br/>runbook vectors")]
-    T4 --> SLACK["Slack channel"]
 
-    SYNTH --> DB[("SQLite<br/>incident log")]
-    AGENT -.->|callback trace| LF["Langfuse"]
+## Quick start
+
+The simulation harness is the point: it drives the entire pipeline, from metric
+to fired alert to webhook to diagnosis, against synthetic failures. Nothing
+here touches production infrastructure, and no paid cloud account is required
+beyond free-tier API keys.
+
+**Prerequisites.** Docker and Docker Compose. A Groq API key
+(https://console.groq.com), a Slack bot token with `chat:write` invited to your
+channel, and a Langfuse key pair. For the host-side scripts, **Python >= 3.10,
+< 3.13**: `fastembed==0.2.7` declares `<3.13`, so resolution fails outright on
+3.13. The Docker image is built on `python:3.11-slim` and is the supported path.
+
+```bash
+# 1. configure
+cp .env.example .env && chmod 600 .env
+# fill in GROQ_API_KEY, SLACK_BOT_TOKEN, SLACK_CHANNEL, the LANGFUSE_* keys and
+# GRAFANA_ADMIN_PASSWORD. Compose refuses to start if the Grafana password is
+# unset. Use https://us.cloud.langfuse.com if your Langfuse project is US-region.
+
+# 2. bring up all six services
+docker compose build && docker compose up -d
+
+# 3. index the runbook corpus into Qdrant (once, against a fresh collection)
+pip install fastembed qdrant-client python-dotenv
+QDRANT_URL=http://localhost:6333 python scripts/index_runbooks.py
+#    -> Indexed 15 files, 77 chunks, into runbooks.
+
+# 4. fire a simulated incident and watch it resolve
+python scripts/simulate_incident.py --scenario drift_detected
 ```
 
-Alert content arriving from the webhook is treated as untrusted input. See
-[SECURITY.md](SECURITY.md) for the threat model and the controls around it.
+Step 4 writes synthetic log lines and pushes `model_psi_score=0.35` to
+Pushgateway. Prometheus scrapes it, `ModelDriftDetected` fires, Alertmanager
+calls the webhook, and the agent posts its diagnosis to Slack. Allow roughly a
+minute for the alert rule's `for: 1m` window.
 
+Scenarios: `serving_latency_spike`, `drift_detected`, `retraining_failure`,
+`feature_staleness`, `high_error_rate`.
 
-## Prerequisites
-
-- **Python >= 3.10, < 3.13** for the host-side scripts. `fastembed==0.2.7`
-  declares `<3.13`, so dependency resolution fails outright on Python 3.13.
-  The Docker image is built on `python:3.11-slim` and is the supported path.
-- Docker and Docker Compose
-- A Groq API key (https://console.groq.com)
-- A Slack bot token with `chat:write` scope, invited to the target channel
-- A Langfuse account (cloud or self-hosted) with a public/secret key pair
-
-
-## Setup
-
-1. Clone the repository and `cd` into it.
-2. Copy `.env.example` to `.env` and fill in `GROQ_API_KEY`, `SLACK_BOT_TOKEN`,
-   `SLACK_CHANNEL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`
-   (use `https://us.cloud.langfuse.com` if your Langfuse project is on the US region),
-   and `GRAFANA_ADMIN_PASSWORD`. Compose refuses to start if the Grafana password
-   is unset. Restrict the file with `chmod 600 .env`.
-
-   All six services publish on `127.0.0.1` only. None of them carry
-   authentication, so do not change these bindings to `0.0.0.0` on a shared or
-   untrusted network.
-3. Build and start the stack:
-   ```
-   docker compose build
-   docker compose up -d
-   ```
-4. Index the runbook corpus into Qdrant (run from the host, against `localhost`):
-   ```
-   pip install fastembed qdrant-client python-dotenv
-   QDRANT_URL=http://localhost:6333 python scripts/index_runbooks.py
-   ```
+All six services publish on `127.0.0.1` only. None of them carry
+authentication, so do not rebind them to `0.0.0.0` on an untrusted network.
 
 
 ## Security: a finding from auditing my own agent
@@ -175,18 +183,68 @@ Since none of the six services carry authentication, all of them publish on
 per-CVE reachability analysis for the pinned dependencies.
 
 
-## Running a simulation
+## Limitations
 
+Stated plainly, because they bound what this project demonstrates.
+
+- **The runbook corpus is ML-ops specific.** All 15 runbooks cover model
+  serving, drift, feature stores, and training failures. Retrieval quality
+  depends entirely on a relevant runbook existing, so applying this to another
+  domain means writing a new corpus, not just repointing the agent.
+- **The model emits malformed tool calls.** `llama-3.1-8b-instant` was chosen
+  for fast, free-tier inference, and it intermittently produces tool-call
+  syntax that the Groq API rejects with a 400. This is handled by graceful
+  degradation, not eliminated: `analyze_node` catches `BadRequestError` and
+  falls back to a diagnosis that reports the failure rather than crashing the
+  run. Diagnosis quality varies between runs as a result, and a larger model
+  would reduce but not remove this.
+- **It has only ever run against simulated alerts.** Every scenario is
+  synthetic, pushed through Pushgateway with hand-written log fixtures. The
+  agent has never been pointed at live infrastructure, so nothing here is
+  evidence about behaviour under real alert volume, noisy labels, or genuinely
+  ambiguous failures.
+- **No authentication anywhere.** Deliberate for a local project and mitigated
+  by loopback binding, but it is the reason the security work in the previous
+  section was necessary.
+- **Single alert per webhook.** Only `payload.alerts[0]` is processed; grouped
+  alerts beyond the first are ignored.
+
+
+## Architecture
+
+```mermaid
+flowchart TD
+    SIM["scripts/simulate_incident.py"] -->|push metric| PG["Pushgateway"]
+    SIM -->|write JSONL| LOGS[("logs/*.jsonl")]
+    PG -->|scrape| PROM["Prometheus"]
+    PROM --> GRAF["Grafana"]
+    PROM -->|alert rules fire| AM["Alertmanager"]
+    AM -->|webhook| API["FastAPI receiver<br/>POST /webhook/alert"]
+    API -->|background task| AGENT
+
+    subgraph AGENT ["LangGraph agent"]
+        direction LR
+        ANALYZE["analyze"] --> TOOLS["execute_tools"]
+        TOOLS --> ANALYZE
+        ANALYZE --> SYNTH["synthesize"]
+    end
+
+    AGENT --> T1["query_prometheus"]
+    AGENT --> T2["query_logs"]
+    AGENT --> T3["search_runbooks"]
+    AGENT --> T4["post_slack"]
+
+    T1 --> PROM
+    T2 --> LOGS
+    T3 --> QDRANT[("Qdrant<br/>runbook vectors")]
+    T4 --> SLACK["Slack channel"]
+
+    SYNTH --> DB[("SQLite<br/>incident log")]
+    AGENT -.->|callback trace| LF["Langfuse"]
 ```
-python scripts/simulate_incident.py --scenario drift_detected
-```
 
-This writes synthetic log lines and pushes a metric to Pushgateway. Prometheus
-evaluates its alert rules on a 30 second interval; once the alert fires, Alertmanager
-sends a webhook to IncidentPilot, which runs the agent in the background.
-
-Available scenarios: `serving_latency_spike`, `drift_detected`, `retraining_failure`,
-`feature_staleness`, `high_error_rate`.
+Alert content arriving from the webhook is treated as untrusted input. See
+[SECURITY.md](SECURITY.md) for the threat model and the controls around it.
 
 
 ## What to observe
