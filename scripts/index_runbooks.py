@@ -1,6 +1,7 @@
 """Index the runbook corpus into Qdrant for vector search."""
 
 import os
+import uuid
 
 from dotenv import load_dotenv
 from fastembed import TextEmbedding
@@ -14,6 +15,30 @@ VECTOR_SIZE = 384
 CHUNK_SIZE_CHARS = 500
 CHUNK_OVERLAP_CHARS = 50
 RUNBOOKS_DIR = "runbooks"
+
+# fixed namespace so point IDs are stable across runs and processes; builtin
+# hash() is seeded per process, so it would insert duplicates on every re-index
+POINT_ID_NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00c04fc964ff")
+
+
+def _build_point_id(filename: str, chunk_index: int) -> str:
+    """
+    Derive a deterministic Qdrant point ID for one runbook chunk.
+
+    Parameters
+    ----------
+    filename : str
+        Runbook file the chunk came from.
+    chunk_index : int
+        Zero-based position of the chunk within that file.
+
+    Returns
+    -------
+    point_id : str
+        UUID5 string, identical for the same chunk on every run, so
+        re-indexing overwrites in place instead of duplicating.
+    """
+    return str(uuid.uuid5(POINT_ID_NAMESPACE, f"{filename}_{chunk_index}"))
 
 
 def _extract_title(content: str) -> str:
@@ -107,7 +132,7 @@ def index_runbooks(client: QdrantClient, collection_name: str) -> tuple[int, int
 
         points_list = [
             PointStruct(
-                id=hash(f"{filename}_{chunk_index}") % (10**9),
+                id=_build_point_id(filename, chunk_index),
                 vector=embeddings_list[chunk_index].tolist(),
                 payload={"title": title, "content": chunk_text, "filename": filename},
             )

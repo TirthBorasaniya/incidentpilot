@@ -66,7 +66,7 @@ cp .env.example .env && chmod 600 .env
 # 2. bring up all six services
 docker compose build && docker compose up -d
 
-# 3. index the runbook corpus into Qdrant (once, against a fresh collection)
+# 3. index the runbook corpus into Qdrant (idempotent, safe to re-run)
 pip install fastembed qdrant-client python-dotenv
 QDRANT_URL=http://localhost:6333 python scripts/index_runbooks.py
 #    -> Indexed 15 files, 77 chunks, into runbooks.
