@@ -207,6 +207,13 @@ Stated plainly, because they bound what this project demonstrates.
   section was necessary.
 - **Single alert per webhook.** Only `payload.alerts[0]` is processed; grouped
   alerts beyond the first are ignored.
+- **`qdrant-client` is pinned to 1.9.1 and the call site depends on it.**
+  `search_runbooks` calls `client.search(...)`, which was removed in later
+  releases in favour of `client.query_points(...)`. Unpinning to 1.18.0 without
+  updating `src/agent/tools/runbook_tool.py` fails immediately with
+  `AttributeError: 'QdrantClient' object has no attribute 'search'`. The Docker
+  image builds against 1.9.1, so this only bites when installing the host-side
+  dependencies into an environment that already has a newer client.
 
 
 ## Architecture
