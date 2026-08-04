@@ -73,6 +73,58 @@ SCENARIOS: dict[str, dict] = {
              "online store may be serving stale features"},
         ],
     },
+    # variants below reuse an existing metric and alert rule, changing only the
+    # log evidence, so one alert maps to several candidate root causes that the
+    # agent has to disambiguate from the logs
+    "retraining_checkpoint_missing": {
+        "metric": "ml_retraining_job_success",
+        "value": 0,
+        "labels": {"service": "retraining-pipeline",
+                   "job_id": "retrain-20240612-004"},
+        "log_service": "retraining-pipeline",
+        "log_lines": [
+            {"timestamp": "<now>", "level": "ERROR", "message":
+             "FileNotFoundError: checkpoint path /mnt/ckpt/run-004/epoch_18.pt "
+             "does not exist"},
+            {"timestamp": "<now>", "level": "ERROR", "message":
+             "job failed at startup before executing any training steps"},
+            {"timestamp": "<now>", "level": "WARNING", "message":
+             "storage mount /mnt/ckpt reports empty on node gpu-node-07, "
+             "volume may not be mounted"},
+        ],
+    },
+    "retraining_loss_divergence": {
+        "metric": "ml_retraining_job_success",
+        "value": 0,
+        "labels": {"service": "retraining-pipeline",
+                   "job_id": "retrain-20240613-005"},
+        "log_service": "retraining-pipeline",
+        "log_lines": [
+            {"timestamp": "<now>", "level": "ERROR", "message":
+             "training loss became NaN at epoch 4 step 1120"},
+            {"timestamp": "<now>", "level": "WARNING", "message":
+             "gradient norm spiked to 4.7e+06 in the steps preceding failure"},
+            {"timestamp": "<now>", "level": "INFO", "message":
+             "learning rate 0.01 with gradient clipping disabled for this run"},
+        ],
+    },
+    "feature_ttl_exceeded": {
+        "metric": "ml_feature_freshness_seconds",
+        "value": 5400,
+        "labels": {"service": "feast-server",
+                   "feature_view": "user_engagement_fv"},
+        "log_service": "feast-server",
+        "log_lines": [
+            {"timestamp": "<now>", "level": "WARNING", "message":
+             "feature view user_engagement_fv TTL of 3600s exceeded, entries "
+             "expired before the next materialization window"},
+            {"timestamp": "<now>", "level": "WARNING", "message":
+             "online store returned null for 38 percent of entity lookups"},
+            {"timestamp": "<now>", "level": "INFO", "message":
+             "materialization job interval 7200s is longer than the "
+             "configured TTL, Kafka consumer lag is zero"},
+        ],
+    },
     "high_error_rate": {
         "metric": "ml_serving_error_rate",
         "value": 0.12,
