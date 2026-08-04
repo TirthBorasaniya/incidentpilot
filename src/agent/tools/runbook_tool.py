@@ -55,6 +55,9 @@ def search_runbooks(query: str) -> str:
             for point in search_results
         ]
         return "".join(sections_list)
-    except Exception as error:
+    # the broad catch is deliberate: the Qdrant client and fastembed raise a
+    # wide range of unrelated error types, and a tool that raises would break
+    # the agent loop instead of letting it degrade and report the failure
+    except Exception as error:  # noqa: BLE001
         print(f"search_runbooks failed: {error}")
         return f"Failed to search runbook corpus: {error}"

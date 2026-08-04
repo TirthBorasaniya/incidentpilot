@@ -10,7 +10,7 @@ from langfuse.callback import CallbackHandler
 
 from src.agent.graph import graph
 from src.db.incident_log import get_incident, init_db, log_incident
-from src.models.webhook import AlertModel, AlertmanagerWebhookPayload
+from src.models.webhook import AlertmanagerWebhookPayload, AlertModel
 
 
 @asynccontextmanager

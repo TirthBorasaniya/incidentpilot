@@ -1,0 +1,16 @@
+# Explicit rule selection, pinned deliberately.
+#
+# Ruff's default rule set expands between releases, so an unpinned linter can
+# turn CI red on a linter release with no change to this code. Selecting rules
+# explicitly here, and pinning the ruff version in .github/workflows/ci.yml,
+# keeps the lint surface deterministic.
+
+[lint]
+select = [
+    "E4",   # import formatting
+    "E7",   # statement style
+    "E9",   # runtime errors
+    "F",    # pyflakes
+    "I",    # import sorting
+    "BLE",  # blind except, suppressed at one deliberate site
+]
