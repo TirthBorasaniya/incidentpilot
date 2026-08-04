@@ -4,6 +4,7 @@ import os
 
 from groq import BadRequestError
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_groq import ChatGroq
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -130,7 +131,7 @@ def analyze_node(state: AgentState) -> dict:
     return {"messages": [response]}
 
 
-def execute_tools_node_wrapper(state: AgentState) -> dict:
+def execute_tools_node_wrapper(state: AgentState, config: RunnableConfig) -> dict:
     """
     Run pending tool calls and increment the iteration counter.
 
@@ -138,6 +139,10 @@ def execute_tools_node_wrapper(state: AgentState) -> dict:
     ----------
     state : AgentState
         Current agent state.
+    config : RunnableConfig
+        Runtime config supplied by LangGraph. Forwarded into the tool node so
+        the tracing callbacks reach each individual tool and every invocation
+        gets its own span.
 
     Returns
     -------
@@ -146,7 +151,7 @@ def execute_tools_node_wrapper(state: AgentState) -> dict:
         incremented iteration count.
     """
     tool_node = ToolNode(TOOLS_LIST)
-    tool_result = tool_node.invoke(state)
+    tool_result = tool_node.invoke(state, config)
 
     return {
         "messages": tool_result["messages"],
@@ -169,12 +174,17 @@ def synthesize_node(state: AgentState) -> dict:
         Partial state update containing the diagnosis and recommended action.
     """
     last_message = state["messages"][-1]
-    diagnosis_text = last_message.content
+    # message content is typed as str or a list of content blocks; this agent
+    # only ever receives plain text back from the model
+    raw_content = last_message.content
+    diagnosis_text = raw_content if isinstance(raw_content, str) else str(raw_content)
 
     recommended_action = _extract_section(diagnosis_text, "RECOMMENDED ACTION")
     runbooks_used = _extract_section(diagnosis_text, "RUNBOOKS CONSULTED")
 
-    post_slack.invoke({"message": diagnosis_text})
+    # the @tool decorator returns a BaseTool at runtime, but its overloads
+    # resolve to a bare Callable for type checking
+    post_slack.invoke({"message": diagnosis_text})  # type: ignore[attr-defined]
 
     tool_calls_list = [
         {"content": message.content}
