@@ -207,6 +207,24 @@ Stated plainly, because they bound what this project demonstrates.
   section was necessary.
 - **Single alert per webhook.** Only `payload.alerts[0]` is processed; grouped
   alerts beyond the first are ignored.
+- **The agent anchors on the alert label rather than the retrieved logs.** This
+  is the most interesting limitation here, and the scenario set keeps a variant
+  that exposes it rather than hiding it. `retraining_loss_divergence` fires
+  `RetrainingJobFailed` with logs describing a NaN loss and a gradient norm
+  spike. The agent read those logs, then searched the runbook corpus for
+  `"retraining job failed"`, a query built from the alert name rather than the
+  evidence it had just gathered. It retrieved the generic retraining runbook,
+  never surfaced `Training Loss Divergence Detected`, and went on to assert a
+  SLURM OOM kill that appears nowhere in the logs.
+
+  This matters beyond one scenario. The appeal of mapping several root causes
+  onto a single alert is that the agent disambiguates them from evidence. At
+  this model tier it largely does not: it disambiguates from the alert name, so
+  runbooks that share an alert with a more obvious sibling stay hard to reach.
+  Fixing it properly means constraining the retrieval query to be derived from
+  log evidence rather than left to the model, which is a design change rather
+  than a prompt tweak. Worth knowing before trusting a diagnosis whose evidence
+  section reads plausibly.
 - **Tracing failures are silent.** The Langfuse callback swallows upload errors
   so the agent keeps working, which means a misconfigured tracing setup looks
   identical to a healthy one from the outside. This is not hypothetical: the
