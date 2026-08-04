@@ -207,6 +207,14 @@ Stated plainly, because they bound what this project demonstrates.
   section was necessary.
 - **Single alert per webhook.** Only `payload.alerts[0]` is processed; grouped
   alerts beyond the first are ignored.
+- **Tracing failures are silent.** The Langfuse callback swallows upload errors
+  so the agent keeps working, which means a misconfigured tracing setup looks
+  identical to a healthy one from the outside. This is not hypothetical: the
+  first two runs on 9 July completed normally and wrote their incident rows,
+  but uploaded nothing, because `LANGFUSE_HOST` pointed at the EU host while
+  the project was US-region. The only symptom was a 401 in the container logs.
+  If traces matter to you, check that they are actually arriving rather than
+  assuming, and see the region note in the quick start.
 - **`qdrant-client` is pinned to 1.9.1 and the call site depends on it.**
   `search_runbooks` calls `client.search(...)`, which was removed in later
   releases in favour of `client.query_points(...)`. Unpinning to 1.18.0 without
