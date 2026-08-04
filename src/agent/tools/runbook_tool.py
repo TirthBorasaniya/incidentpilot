@@ -50,8 +50,11 @@ def search_runbooks(query: str) -> str:
             limit=TOP_K,
         )
 
+        # payload is optional on a scored point, so a point indexed without one
+        # degrades to a labelled empty section instead of raising
         sections_list = [
-            f"### {point.payload['title']}\n{point.payload['content']}\n\n---\n"
+            f"### {(point.payload or {}).get('title', 'Untitled')}\n"
+            f"{(point.payload or {}).get('content', '')}\n\n---\n"
             for point in search_results
         ]
         return "".join(sections_list)
