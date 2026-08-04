@@ -58,7 +58,7 @@ def query_logs(service: str, pattern: str, window_minutes: int = 30) -> str:
     # naive UTC, matching the timestamps written by the simulation harness
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     cutoff_time = now_utc - timedelta(minutes=window_minutes)
-    matching_lines_list = []
+    matching_lines_list: list[str] = []
 
     with open(log_path, "r") as log_file:
         for raw_line in log_file:

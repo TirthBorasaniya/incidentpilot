@@ -1,7 +1,6 @@
 """Pydantic models for Alertmanager webhook payloads."""
 
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel
 

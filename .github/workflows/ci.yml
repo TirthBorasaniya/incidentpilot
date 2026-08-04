@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # fastembed 0.2.7 declares <3.13 and python-dotenv 1.2.2 sets a >=3.10
+      # floor, so the resolve only succeeds on 3.10 through 3.12
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install ruff mypy
+
+      - name: Ruff
+        run: ruff check src scripts tests
+
+      - name: Mypy
+        run: mypy src scripts --ignore-missing-imports
+
+      - name: Pytest
+        run: pytest -q
